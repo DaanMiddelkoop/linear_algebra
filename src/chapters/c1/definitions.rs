@@ -1,7 +1,5 @@
 use std::{
-    fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, Index, Mul, Neg, Sub},
-    slice::SliceIndex,
+    fmt::{Debug, Display}, ops::{Add, AddAssign, Div, Index, Mul, Neg, Sub}, process::Output, slice::SliceIndex
 };
 
 #[derive(Clone, Copy)]
@@ -73,7 +71,7 @@ impl<T> Neg for Complex<T>
 where
     T: Neg<Output = T>,
 {
-    type Output = Complex<T::Output>;
+    type Output = Complex<T>;
 
     fn neg(self) -> Self::Output {
         Self::Output {
@@ -139,13 +137,13 @@ where
 
 impl<T, const N: usize> Add for List<T, N>
 where
-    T: AddAssign,
+    T: Add<Output = T> + Copy,
 {
     type Output = Self;
 
     fn add(mut self, rhs: Self) -> Self::Output {
         for (a, b) in self.elems.iter_mut().zip(rhs.elems.into_iter()) {
-            *a += b;
+            *a = *a + b;
         }
         self
     }
@@ -232,26 +230,84 @@ where
     }
 }
 
-impl<T, const N: usize> Mul<T> for List<T, N>
-where
-    T: Mul<T, Output = T> + Copy,
-{
-    type Output = List<T, N>;
+// 1B Vector space
+// Vector space V
 
-    fn mul(self, rhs: T) -> Self::Output {
-        Self {
-            elems: self.elems.map(|x| x * rhs),
+// Scalar multiplication
+pub trait MulScalar<T> {
+    fn mul(self, rhs: T) -> Self;
+}
+
+impl<T, const N: usize> MulScalar<T> for List<T, N> where T: Mul<Output = T> + Copy {
+    fn mul(self, rhs: T) -> Self {
+        Self { 
+            elems: self.elems.map(|x| x * rhs)
         }
     }
 }
 
+
+
+// u + v = v + u
+pub trait Commutative : Add<Output = Self> + Sized {}
+impl<T> Commutative for Complex<T> where T: Commutative {}
+impl<T, const N: usize> Commutative for List<T, N> where T: Commutative, T: Copy {}
+impl Commutative for f64 {}
+
+// (u + v) + w = u + (v + w)
+pub trait Associative : Add<Output = Self> + Sized {}
+impl<T> Associative for Complex<T> where T: Associative {}
+impl<T, const N: usize> Associative for List<T, N> where T: Associative, T: Copy {}
+impl Associative for f64 {}
+
+// there exists an element 0 so that v+0 is v for all v in V
+pub trait Identity : Add<Output = Self> + Zero + Sized {}
+impl<T> Identity for Complex<T> where T: Identity {}
+impl<T, const N: usize> Identity for List<T, N> where T: Identity + Copy {}
+impl Identity for f64 {}
+
+// For every v there exists a w so that v + w is 0
+pub trait Inverse : Add<Output = Self> + Neg<Output = Self> + Sized {}
+impl<T> Inverse for Complex<T> where T: Inverse {}
+impl<T, const N: usize> Inverse for List<T, N> where T: Inverse + Copy {}
+impl Inverse for f64 {}
+
+// 1 * v = v for all v
+pub trait MulIdent<X> : MulScalar<X> + Sized {}
+impl<T> MulIdent<T> for Complex<T> where T: One, Self: MulScalar<T> {}
+impl<T, const N: usize> MulIdent<T> for List<T, N> where T: One, Self: MulScalar<T>,  {}
+
+// a(u + v) = au + av and (a+b)v = av + bv for all a, b in F and u, v in V
+// This one is hard to implement
+pub trait Distributive<X>  where Self: Sized, Self: MulScalar<X>  {}
+impl<T, X> Distributive<X> for Complex<T> where Self: MulScalar<X> {}
+impl<T, X, const N: usize> Distributive<X> for List<T, N> where Self: MulScalar<X> {}
+
+// A Vector Space V over F
+pub trait Field<F> {}
+impl<V, F> Field<F> for V where 
+    V: Commutative,
+    V: Associative,
+    V: Identity,
+    V: Inverse,
+    V: MulIdent<F>,
+    V: Distributive<F> {}
+
+
+
+
+
 #[cfg(test)]
 mod test {
-    use super::List;
+    use super::{Field, List};
 
     #[test]
     fn scratch_pad() {
-        let list = List { elems: [1, 1, 1] };
-        let x = list * 5_isize;
+
+        accept_field::<List<f64, 3>, f64>(); // Oke
+        // accept_field::<super::Complex<f64>, f64>() // Error required for `chapters::c1::definitions::Complex<f64>` to implement `chapters::c1::definitions::MulIdent<f64>` -> Complexe numbers kunnen niet gemultiplied worden met f64s en missen dus een multiplicative identity
     }
+
+    fn accept_field<T: Field<X>, X>() {}
 }
+
