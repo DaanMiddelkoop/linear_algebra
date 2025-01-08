@@ -40,16 +40,6 @@ where
     }
 }
 
-impl<T> AddAssign for Complex<T>
-where
-    T: AddAssign,
-{
-    fn add_assign(&mut self, rhs: Self) {
-        self.a += rhs.a;
-        self.b += rhs.b;
-    }
-}
-
 impl<T> Mul for Complex<T>
 where
     T: Mul<Output = T>,
@@ -81,42 +71,44 @@ where
     }
 }
 
-#[allow(clippy::eq_op)]
-impl<T> Complex<T>
-where
-    T: Div<Output = T> + One,
-{
-    pub fn inverse(self) -> Self {
+pub trait AddInverse {
+    fn negate(self) -> Self;
+}
+
+impl AddInverse for f64 {
+    fn negate(self) -> Self {
+        -self
+    }
+}
+
+impl AddInverse for Complex<f64> {
+    fn negate(self) -> Self {
         Self {
-            a: T::ONE / self.a,
-            b: T::ONE / self.b,
+            a: -self.a,
+            b: -self.b,
         }
     }
 }
 
-impl<T> Div for Complex<T>
-where
-    T: Mul<Output = T> + Div<Output = T> + Add<Output = T> + Sub<Output = T> + One + Copy,
-{
-    type Output = Complex<T>;
+pub trait MulInverse {
+    fn inverse(self) -> Self;
+}
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
-    fn div(self, rhs: Self) -> Self::Output {
-        self * rhs.inverse()
+impl MulInverse for f64 {
+    fn inverse(self) -> Self {
+        1.0 / self
     }
 }
 
-impl<T> Sub for Complex<T>
-where
-    T: Neg<Output = T>,
-    T: Add<Output = T>,
-{
-    type Output = Complex<T>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self + (-rhs)
+impl MulInverse for Complex<f64> {
+    fn inverse(self) -> Self {
+        Self {
+            a: 1.0 / self.a,
+            b: 1.0 / self.b,
+        }
     }
 }
+
 
 // Lists
 #[derive(Clone, Copy)]
@@ -148,6 +140,27 @@ where
         self
     }
 }
+
+pub trait Subtract {
+    fn subtract(self, rhs: Self) -> Self;
+}
+
+impl<T> Subtract for T where T: Add<Output = T> + AddInverse {
+    fn subtract(self, rhs: Self) -> Self {
+        self + (rhs.negate())
+    }
+}
+
+pub trait Divide {
+    fn divide(self, rhs: Self) -> Self;
+}
+
+impl<T> Divide for T where T: Mul<Output = T> + MulInverse {
+    fn divide(self, rhs: Self) -> Self {
+        self * rhs.inverse()
+    }
+}
+
 
 pub trait Zero {
     const ZERO: Self;
@@ -238,6 +251,12 @@ pub trait MulScalar<T> {
     fn mul(self, rhs: T) -> Self;
 }
 
+impl<T> MulScalar<T> for T where T: Mul<T, Output = T> {
+    fn mul(self, rhs: T) -> Self {
+        self * rhs
+    }
+}
+
 impl<T, const N: usize> MulScalar<T> for List<T, N> where T: Mul<Output = T> + Copy {
     fn mul(self, rhs: T) -> Self {
         Self { 
@@ -273,41 +292,47 @@ impl<T, const N: usize> Inverse for List<T, N> where T: Inverse + Copy {}
 impl Inverse for f64 {}
 
 // 1 * v = v for all v
-pub trait MulIdent<X> : MulScalar<X> + Sized {}
+pub trait MulIdent<X> : MulScalar<X> + Sized where X: One {
+    fn mul_ident(self) -> X {
+        X::ONE
+    }
+}
 impl<T> MulIdent<T> for Complex<T> where T: One, Self: MulScalar<T> {}
+impl<T> MulIdent<T> for T where T: MulScalar<T> + One {}
 impl<T, const N: usize> MulIdent<T> for List<T, N> where T: One, Self: MulScalar<T>,  {}
 
 // a(u + v) = au + av and (a+b)v = av + bv for all a, b in F and u, v in V
 // This one is hard to implement
 pub trait Distributive<X>  where Self: Sized, Self: MulScalar<X>  {}
+impl Distributive<f64> for f64 {}
 impl<T, X> Distributive<X> for Complex<T> where Self: MulScalar<X> {}
 impl<T, X, const N: usize> Distributive<X> for List<T, N> where Self: MulScalar<X> {}
 
 // A Vector Space V over F
-pub trait Field<F> {}
-impl<V, F> Field<F> for V where 
+pub trait VectorSpace<F> {}
+impl<V, F> VectorSpace<F> for V where 
     V: Commutative,
     V: Associative,
     V: Identity,
     V: Inverse,
     V: MulIdent<F>,
-    V: Distributive<F> {}
-
-
-
+    V: Distributive<F>,
+    F: One {}
 
 
 #[cfg(test)]
 mod test {
-    use super::{Field, List};
+    use super::{Complex, List, MulIdent, MulInverse, MulScalar, VectorSpace};
+    use super::Divide;
 
     #[test]
     fn scratch_pad() {
-
         accept_field::<List<f64, 3>, f64>(); // Oke
-        // accept_field::<super::Complex<f64>, f64>() // Error required for `chapters::c1::definitions::Complex<f64>` to implement `chapters::c1::definitions::MulIdent<f64>` -> Complexe numbers kunnen niet gemultiplied worden met f64s en missen dus een multiplicative identity
+        accept_field::<super::Complex<f64>, super::Complex<f64>>(); // C is a Vector space over C
+        accept_field::<f64, f64>(); // R is a Vector space over R
+        // accept_field::<super::Complex<f64>, f64>(); // C is not a vector space over R, no multiplicative identity (or maybe there is?)
     }
 
-    fn accept_field<T: Field<X>, X>() {}
+    fn accept_field<T: VectorSpace<X>, X>() {}
 }
 
